@@ -12,6 +12,8 @@ import warnings
 import traceback
 import argparse
 import re
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.ensemble import IsolationForest
@@ -25,7 +27,7 @@ warnings.filterwarnings('ignore')
 
 
 class PacketGenerator:
-    def __init__(self, dataset_path, output_dir="/Users/mayankraj/Desktop/RESEARCH/project 2 V2/generated_packets", seed=42):
+    def __init__(self, dataset_path, output_dir="/Users/mayankraj/Desktop/RESEARCH/2. Synthetic Netowrk Packet Generation/Final codes folder", seed=42):
         """
         Initialize the packet generator
         
@@ -46,6 +48,9 @@ class PacketGenerator:
         # Create output directory if it doesn't exist
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
+            
+        # Time tracking for packet count vs time graph
+        self.generation_time_data = {}  # {class_name: {'times': [], 'packet_counts': []}}
             
         # Set random seed for reproducibility
         np.random.seed(seed)
@@ -429,6 +434,10 @@ class PacketGenerator:
             valid_packets = []
             total_attempts = 0
             
+            # Time tracking for packet count vs time graph
+            start_time = time.time()
+            time_data = {'times': [0.0], 'packet_counts': [0]}
+            
             # Generate packets until we have enough or reach max attempts
             while len(valid_packets) < packets_per_class and total_attempts < packets_per_class * max_attempts:
                 # Number of packets to generate in this batch
@@ -475,6 +484,10 @@ class PacketGenerator:
                     for i in range(batch_size):
                         if ocsvm_preds[i] == 1 and if_preds[i] == 1:  # 1 means normal, -1 means anomaly
                             valid_packets.append(potential_packets[i])
+                            # Track time and packet count
+                            elapsed_time = time.time() - start_time
+                            time_data['times'].append(elapsed_time)
+                            time_data['packet_counts'].append(len(valid_packets))
                             if len(valid_packets) >= packets_per_class:
                                 break
                 except Exception as e:
@@ -482,6 +495,10 @@ class PacketGenerator:
                     # On error, accept all packets in this batch
                     for i in range(batch_size):
                         valid_packets.append(potential_packets[i])
+                        # Track time and packet count
+                        elapsed_time = time.time() - start_time
+                        time_data['times'].append(elapsed_time)
+                        time_data['packet_counts'].append(len(valid_packets))
                         if len(valid_packets) >= packets_per_class:
                             break
                 
@@ -508,6 +525,10 @@ class PacketGenerator:
                         packet = mean + noise * std * 0.3  # Reduced scaling to stay closer to mean
                         packet = np.clip(packet, min_val, max_val)  # Ensure within bounds
                         valid_packets.append(packet)
+                        # Track time and packet count
+                        elapsed_time = time.time() - start_time
+                        time_data['times'].append(elapsed_time)
+                        time_data['packet_counts'].append(len(valid_packets))
                     
                     print(f"Generated {len(valid_packets)} packets using class statistics")
                 else:
@@ -518,6 +539,13 @@ class PacketGenerator:
                         # Add small noise to avoid exact duplicates
                         noise = np.random.normal(0, 0.01, size=len(valid_packets[0]))
                         valid_packets.append(valid_packets[idx] + noise)
+                        # Track time and packet count
+                        elapsed_time = time.time() - start_time
+                        time_data['times'].append(elapsed_time)
+                        time_data['packet_counts'].append(len(valid_packets))
+            
+            # Store time data for this class
+            self.generation_time_data[cls] = time_data
             
             # Take only the required number of packets
             valid_packets = valid_packets[:packets_per_class]
@@ -543,6 +571,80 @@ class PacketGenerator:
         
         self.generated_data = generated_data
         print("Packet generation completed.")
+        
+        # Plot packet count vs time graph
+        self.plot_packet_count_vs_time()
+    
+    def plot_packet_count_vs_time(self):
+        """
+        Plot packet count vs time graph for all classes
+        """
+        print("Generating packet count vs time graph...")
+        
+        if not self.generation_time_data:
+            print("No time data available for plotting.")
+            return
+        
+        # Create figure with subplots
+        num_classes = len(self.generation_time_data)
+        
+        # Create a combined plot
+        plt.figure(figsize=(14, 8))
+        
+        colors = plt.cm.tab20(np.linspace(0, 1, num_classes))
+        
+        for idx, (cls, data) in enumerate(self.generation_time_data.items()):
+            times = data['times']
+            counts = data['packet_counts']
+            plt.plot(times, counts, label=cls, color=colors[idx], linewidth=2, marker='o', markersize=2)
+        
+        plt.xlabel('Time (seconds)', fontsize=12)
+        plt.ylabel('Cumulative Packet Count', fontsize=12)
+        plt.title('Statistical Learning: Packet Generation Progress Over Time', fontsize=14)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        # Save the combined plot
+        combined_plot_path = os.path.join(self.output_dir, 'packet_count_vs_time_combined_SA.png')
+        plt.savefig(combined_plot_path, dpi=300, bbox_inches='tight')
+        print(f"Saved combined plot to {combined_plot_path}")
+        plt.close()
+        
+        # Create individual plots for each class
+        fig, axes = plt.subplots(nrows=(num_classes + 2) // 3, ncols=3, figsize=(15, 4 * ((num_classes + 2) // 3)))
+        axes = axes.flatten() if num_classes > 1 else [axes]
+        
+        for idx, (cls, data) in enumerate(self.generation_time_data.items()):
+            times = data['times']
+            counts = data['packet_counts']
+            
+            axes[idx].plot(times, counts, color=colors[idx], linewidth=2, marker='o', markersize=3)
+            axes[idx].set_xlabel('Time (seconds)', fontsize=10)
+            axes[idx].set_ylabel('Packet Count', fontsize=10)
+            axes[idx].set_title(f'{cls}', fontsize=11)
+            axes[idx].grid(True, alpha=0.3)
+            
+            # Add final count annotation
+            if len(counts) > 0:
+                axes[idx].annotate(f'{counts[-1]} packets\n{times[-1]:.2f}s', 
+                                   xy=(times[-1], counts[-1]), 
+                                   fontsize=8, ha='right')
+        
+        # Hide empty subplots
+        for idx in range(len(self.generation_time_data), len(axes)):
+            axes[idx].set_visible(False)
+        
+        plt.suptitle('Statistical Learning: Packet Generation Progress by Class', fontsize=14, y=1.02)
+        plt.tight_layout()
+        
+        # Save individual plots
+        individual_plot_path = os.path.join(self.output_dir, 'packet_count_vs_time_individual_SA.png')
+        plt.savefig(individual_plot_path, dpi=300, bbox_inches='tight')
+        print(f"Saved individual plots to {individual_plot_path}")
+        plt.close()
+        
+        print("Packet count vs time graphs generated successfully.")
     
     def save_generated_packets(self):
         """
@@ -814,7 +916,7 @@ if __name__ == "__main__":
     # Parse command line arguments if any
     parser = argparse.ArgumentParser(description='Generate network packets based on ACI IoT 2023 dataset')
     parser.add_argument('--dataset', type=str, 
-                        default="/Users/mayankraj/Desktop/RESEARCH/Thesis Codes /archive/ACI-IoT-2023.csv",
+                        default="/Users/mayankraj/Desktop/RESEARCH/Research Datasets/ACI IOT 2023 Dataset./ACI-IoT-2023.csv",
                         help='Path to the ACI IoT 2023 dataset')
     parser.add_argument('--output', type=str, default='generated_packets',
                         help='Directory to save generated packets')

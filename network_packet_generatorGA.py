@@ -55,6 +55,9 @@ class GeneticPacketGenerator:
         self.generations = 50       # Maximum generations to evolve
         self.target_fitness = 0.9   # Target fitness score to achieve
         
+        # Time tracking for packet count vs time graph
+        self.generation_time_data = {}  # {class_name: {'times': [], 'packet_counts': []}}
+        
         # Create output directory if it doesn't exist
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -716,6 +719,10 @@ class GeneticPacketGenerator:
         stagnation_counter = 0
         best_fitness_history = []
         
+        # Time tracking for packet count vs time graph
+        start_time = time.time()
+        time_data = {'times': [0.0], 'packet_counts': [0]}
+        
         # Evolution loop
         while len(unique_packets) < packets_per_class and generation < self.generations:
             print(f"Generation {generation+1}/{self.generations}, Unique packets: {len(unique_packets)}/{packets_per_class}")
@@ -749,6 +756,10 @@ class GeneticPacketGenerator:
                 # Only add if fitness is good enough and it's unique
                 if fitness > 0.8 and self.is_unique(individual, unique_packets):
                     unique_packets.append(individual)
+                    # Track time and packet count
+                    elapsed_time = time.time() - start_time
+                    time_data['times'].append(elapsed_time)
+                    time_data['packet_counts'].append(len(unique_packets))
                     if len(unique_packets) >= packets_per_class:
                         break
             
@@ -775,6 +786,10 @@ class GeneticPacketGenerator:
                 # Only add if it's unique
                 if self.is_unique(individual, unique_packets):
                     unique_packets.append(individual)
+                    # Track time and packet count
+                    elapsed_time = time.time() - start_time
+                    time_data['times'].append(elapsed_time)
+                    time_data['packet_counts'].append(len(unique_packets))
                     if len(unique_packets) >= packets_per_class:
                         break
             
@@ -797,6 +812,13 @@ class GeneticPacketGenerator:
                     # Only add if it's unique
                     if self.is_unique(individual, unique_packets):
                         unique_packets.append(ind)
+                        # Track time and packet count
+                        elapsed_time = time.time() - start_time
+                        time_data['times'].append(elapsed_time)
+                        time_data['packet_counts'].append(len(unique_packets))
+        
+        # Store time data for this class
+        self.generation_time_data[cls] = time_data
         
         print(f"Generated {len(unique_packets)} unique packets for class {cls}")
         return np.array(unique_packets)
@@ -848,6 +870,80 @@ class GeneticPacketGenerator:
         
         self.generated_data = generated_data
         print("Packet generation completed.")
+        
+        # Plot packet count vs time graph
+        self.plot_packet_count_vs_time()
+    
+    def plot_packet_count_vs_time(self):
+        """
+        Plot packet count vs time graph for all classes
+        """
+        print("Generating packet count vs time graph...")
+        
+        if not self.generation_time_data:
+            print("No time data available for plotting.")
+            return
+        
+        # Create figure with subplots
+        num_classes = len(self.generation_time_data)
+        
+        # Create a combined plot
+        plt.figure(figsize=(14, 8))
+        
+        colors = plt.cm.tab20(np.linspace(0, 1, num_classes))
+        
+        for idx, (cls, data) in enumerate(self.generation_time_data.items()):
+            times = data['times']
+            counts = data['packet_counts']
+            plt.plot(times, counts, label=cls, color=colors[idx], linewidth=2, marker='o', markersize=2)
+        
+        plt.xlabel('Time (seconds)', fontsize=12)
+        plt.ylabel('Cumulative Packet Count', fontsize=12)
+        plt.title('Genetic Algorithm: Packet Generation Progress Over Time', fontsize=14)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        # Save the combined plot
+        combined_plot_path = os.path.join(self.output_dir, 'packet_count_vs_time_combined_GA.png')
+        plt.savefig(combined_plot_path, dpi=300, bbox_inches='tight')
+        print(f"Saved combined plot to {combined_plot_path}")
+        plt.close()
+        
+        # Create individual plots for each class
+        fig, axes = plt.subplots(nrows=(num_classes + 2) // 3, ncols=3, figsize=(15, 4 * ((num_classes + 2) // 3)))
+        axes = axes.flatten() if num_classes > 1 else [axes]
+        
+        for idx, (cls, data) in enumerate(self.generation_time_data.items()):
+            times = data['times']
+            counts = data['packet_counts']
+            
+            axes[idx].plot(times, counts, color=colors[idx], linewidth=2, marker='o', markersize=3)
+            axes[idx].set_xlabel('Time (seconds)', fontsize=10)
+            axes[idx].set_ylabel('Packet Count', fontsize=10)
+            axes[idx].set_title(f'{cls}', fontsize=11)
+            axes[idx].grid(True, alpha=0.3)
+            
+            # Add final count annotation
+            if len(counts) > 0:
+                axes[idx].annotate(f'{counts[-1]} packets\n{times[-1]:.2f}s', 
+                                   xy=(times[-1], counts[-1]), 
+                                   fontsize=8, ha='right')
+        
+        # Hide empty subplots
+        for idx in range(len(self.generation_time_data), len(axes)):
+            axes[idx].set_visible(False)
+        
+        plt.suptitle('Genetic Algorithm: Packet Generation Progress by Class', fontsize=14, y=1.02)
+        plt.tight_layout()
+        
+        # Save individual plots
+        individual_plot_path = os.path.join(self.output_dir, 'packet_count_vs_time_individual_GA.png')
+        plt.savefig(individual_plot_path, dpi=300, bbox_inches='tight')
+        print(f"Saved individual plots to {individual_plot_path}")
+        plt.close()
+        
+        print("Packet count vs time graphs generated successfully.")
     
     def save_generated_packets(self):
         """
@@ -1721,7 +1817,7 @@ if __name__ == "__main__":
     # Parse command line arguments if any
     parser = argparse.ArgumentParser(description='Generate network packets based on ACI IoT 2023 dataset using Genetic Algorithm')
     parser.add_argument('--dataset', type=str, 
-                        default="/Users/mayankraj/Desktop/RESEARCH/Thesis Codes /archive/ACI-IoT-2023.csv",
+                        default="/Users/mayankraj/Desktop/RESEARCH/Research Datasets/ACI IOT 2023 Dataset./ACI-IoT-2023.csv",
                         help='Path to the ACI IoT 2023 dataset')
     parser.add_argument('--output', type=str, default='generated_packets',
                         help='Directory to save generated packets')
@@ -1738,7 +1834,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Hard-coded report path
-    report_path = "/Users/mayankraj/Desktop/RESEARCH/Project 2 V3"
+    report_path = "/Users/mayankraj/Desktop/RESEARCH/2. Synthetic Netowrk Packet Generation/Final codes folder"
     
     try:
         # Create the genetic packet generator
